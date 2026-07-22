@@ -1,18 +1,22 @@
-■ 7/22 (수) 11:00 AM - PKG Code 관련 회의
-
- *회의목표
-	- 품질 PKG Code를 개선하여 6k, FAB2 등 후속 프로젝트에 공통적으로 적용
-
- *회의내용
-	(공통)
-	- Schedule Code와 PKG Code에서 공통되는 Level에 대한 목록 및 Code 일치화
-	- PKG Code 내 Serial No.에 PJT 정보 추가 (예: 6k → 6001으로 시작)
-	- System PKG 내 골조 항목 추가하는 건 검토
-	- Work PKG와 System PKG를 일원화하는 건 검토
-	
-	(E&A)
-	- FAB2 수행 Scope에 대한 PKG Code 점검 *특히 새로 추가되는 Scope
-	(FAB1에서 수행한 CUB(물산), UPW(노무라) 자료는 Trimble에서 얻을 수 있음)
-		
-	(물산)
-        - 1차로 PKG Code 수정본 작성하여 제출 (8/16) → 이후 전자 품질담당자 협의
+오늘(7/22) 진행된 PKG Code 개선 관련 회의 결과를 공유해 드립니다.
+자세한 내용은 아래의 회의 요약을 확인해 주시기 바랍니다.
+■ 회의 개요
+ 일시: 2026년 7월 22일 (수) 11:00 AM
+ 주제: PKG Code 개선 및 후속 프로젝트 적용 방안
+ 참석자: [ 참석자 성명/직급 기입 ]
+■ 회의 목표
+ 품질 PKG Code 개선을 통해 6k, FAB2 등 후속 프로젝트에 공통 적용할 표준 체계 수립
+■ 주요 논의 및 결정 사항
+1. 공통 사항
+ Code 일치화: Schedule Code와 PKG Code 간 공통 Level 목록 도출 및 Code 체계 일치 추진
+ PJT 정보 반영: PKG Code 내 Serial No.에 프로젝트 구분 정보 추가 (예: 6k 프로젝트의 경우 '6001'로 시작)
+ 구조 검토:
+ System PKG 내 '골조' 항목 추가 건 검토
+ Work PKG와 System PKG 일원화 방안 검토
+2. E&A 분야
+ FAB2 Scope 점검: FAB2 수행 Scope(특히 신규 추가 Scope) 대상 PKG Code 점검
+ 참고사항: FAB1에서 수행한 CUB(물산), UPW(노무라) 관련 자료는 Trimble을 통해 확보 가능
+3. 삼성물산
+ 1차 수정본 제출: PKG Code 1차 수정본 작성 후 **8월 16일(일)**까지 제출
+ 향후 일정: 제출 완료 후 전자 품질담당자와 최종 협의 진행 예정
+관련하여 문의 사항이나 추가 의견이 있으신 분은 답신 부탁드립니다.
