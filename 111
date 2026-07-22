@@ -1,0 +1,18 @@
+■ 7/22 (수) 11:00 AM - PKG Code 관련 회의
+
+ *회의목표
+	- 품질 PKG Code를 개선하여 6k, FAB2 등 후속 프로젝트에 공통적으로 적용
+
+ *회의내용
+	(공통)
+	- Schedule Code와 PKG Code에서 공통되는 Level에 대한 목록 및 Code 일치화
+	- PKG Code 내 Serial No.에 PJT 정보 추가 (예: 6k → 6001으로 시작)
+	- System PKG 내 골조 항목 추가하는 건 검토
+	- Work PKG와 System PKG를 일원화하는 건 검토
+	
+	(E&A)
+	- FAB2 수행 Scope에 대한 PKG Code 점검 *특히 새로 추가되는 Scope
+	(FAB1에서 수행한 CUB(물산), UPW(노무라) 자료는 Trimble에서 얻을 수 있음)
+		
+	(물산)
+        - 1차로 PKG Code 수정본 작성하여 제출 (8/16) → 이후 전자 품질담당자 협의
