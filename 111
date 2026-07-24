@@ -1,24 +1,8 @@
-# [수정] 윈도우 OS의 기능을 빌려 바탕화면 아이콘을 더블클릭하듯 100% 깨끗하게 독립 실행
-def toggle_theme(root):
-    new_theme = "dark" if app_data.get("theme", "light") == "light" else "light"
-    app_data["theme"] = new_theme
-    try:
-        app_data["win_x"] = root.winfo_x()
-        app_data["win_y"] = root.winfo_y()
-    except Exception:
-        pass
-    save_config()
-    
-    # ========================================================
-    # [핵심 패치] 환경 변수 상속 없이 완전한 독립 실행 (더블 클릭과 동일한 효과)
-    if getattr(sys, 'frozen', False):
-        # exe로 구운 경우: 윈도우 쉘을 통해 깨끗하게 새 프로세스 실행
-        os.startfile(sys.executable)
-    else:
-        # VS Code 등 파이썬 환경에서 실행 중인 경우
-        import subprocess
-        subprocess.Popen([sys.executable] + sys.argv)
-        
-    root.destroy()
-    os._exit(0) # 구버전 프로그램이 즉시 강제 종료되도록 하여 폴더 충돌 원천 차단
-    # ========================================================
+---------------------------
+Warning
+---------------------------
+Failed to remove temporary directory: C:\Users\shyuni.kim\AppData\Local\Temp\_MEI6522
+
+---------------------------
+확인   
+---------------------------
