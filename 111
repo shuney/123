@@ -1,18 +1,1 @@
-# ==========================================
-# 0. Global Settings & Colors (Dark Mode Support)
-# ==========================================
-# ...(상단 생략)...
-
-C_FG = "#1D1D1F" if THEME == "light" else "#F5F5F5"
-
-# [수정 전]
-# C_SEC_FG = "#48484A" if THEME == "light" else "#A1A1A6"
-
-# ========================================================
-# [수정 후] 다크 모드 소제목 텍스트를 훨씬 밝은 '플래티넘 실버(#D1D1D6)'로 톤업하여 가독성 확보
-C_SEC_FG = "#48484A" if THEME == "light" else "#D1D1D6" 
-# ========================================================
-
-C_BORDER = "#D1D1D6" if THEME == "light" else "#48484A"
-
-# ...(하단 생략)...
+pyinstaller --noconfirm --onefile --windowed --icon="prm.ico" --add-data "prm.ico;." --collect-all pymssql --collect-all sqlalchemy --collect-all openpyxl "P6_Resource.py"
