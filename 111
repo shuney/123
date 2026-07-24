@@ -1,1 +1,21 @@
-pyinstaller --noconfirm --onefile --windowed --icon="prm.ico" --add-data "prm.ico;." --collect-all pymssql --collect-all sqlalchemy --collect-all openpyxl "P6_Resource.py"
+Unhandled exception in script
+Failed to execute script 'pyi_rth_tkinter' due to unhandled exception: Tcl data directory
+"C\Users\shyuni.kim\AppData\Local\Temp\_MEI443002\_tcl)data" not found.
+
+
+Traceback (most recent call last):
+  File "pyi_rth__tkinter.py", line 36, in <module>
+  File "pyi_rth__tkinter.py", line 28, in _pyi_rthook
+FileNotFoundError: Tcl data directory "C:\Users\shyuni.kim\AppData\Local\Temp\_MEI443002\_tcl_data" not found.
+
+
+
+
+---------------------------
+Warning
+---------------------------
+Failed to remove temporary directory: C:\Users\shyuni.kim\AppData\Local\Temp\_MEI443002
+
+---------------------------
+확인   
+---------------------------
