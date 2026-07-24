@@ -1,142 +1,23 @@
 # ==========================================
-# 4. Ultra-Clean GUI & Precision Diagonal Gradient Engine
+# 0. Global Settings & Colors (Dark Mode Support)
 # ==========================================
-def hex_to_rgb(h_color):
-    h = h_color.lstrip('#')
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+# ...(파일 설정 등 생략)...
 
-breathing_buttons = []
+THEME = app_data.get("theme", "light")
 
-def create_diagonal_gradient_button(canvas, x, y, w, h, radius, c_top, c_bot, h_top, h_bot, text, command, f_size=11):
-    btn_tag = f"btn_{x}_{y}_{random.randint(1,1000)}"
-    c1, c2 = hex_to_rgb(c_top), hex_to_rgb(c_bot)
-    hc1, hc2 = hex_to_rgb(h_top), hex_to_rgb(h_bot)
-    
-    line_data_normal = []
-    
-    for c in range(0, w + h, 1):
-        factor = (math.sin(math.pi * (c / (w + h)) - math.pi / 2) + 1) / 2
-        
-        base_r = int(c1[0] + (c2[0] - c1[0]) * factor)
-        base_g = int(c1[1] + (c2[1] - c1[1]) * factor)
-        base_b = int(c1[2] + (c2[2] - c1[2]) * factor)
-        
-        color = "#%02x%02x%02x" % (base_r, base_g, base_b)
-        h_color = "#%02x%02x%02x" % (int(hc1[0] + (hc2[0] - hc1[0]) * factor), int(hc1[1] + (hc2[1] - hc1[1]) * factor), int(hc1[2] + (hc2[2] - hc1[2]) * factor))
-        
-        x1, y1 = min(c, w), c - min(c, w)
-        y2, x2 = min(c, h), c - min(c, h)
-        
-        l_norm = canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=color, width=3, tags=(btn_tag, f"{btn_tag}_normal"))
-        canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=h_color, width=3, state="hidden", tags=(btn_tag, f"{btn_tag}_hover"))
-        line_data_normal.append((l_norm, base_r, base_g, base_b, c))
+C_BG = "#F5F5F7" if THEME == "light" else "#2B2B2D"
+C_SEC_BG = "#FFFFFF" if THEME == "light" else "#3A3A3C"
 
-    breathing_buttons.append({
-        "canvas": canvas,
-        "lines": line_data_normal,
-        "phase": random.random() * math.pi
-    })
+C_FG = "#1D1D1F" if THEME == "light" else "#F5F5F5"
+C_SEC_FG = "#48484A" if THEME == "light" else "#A1A1A6" 
+C_BORDER = "#D1D1D6" if THEME == "light" else "#48484A"
 
-    canvas.create_rectangle(x-6, y-6, x, y+h+6, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x+w, y-6, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x-6, y-6, x+w+6, y, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x-6, y+h, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
+C_SUBTITLE_FG = "#86868B" if THEME == "light" else "#8E8E93"
+# [수정] 다크 모드 하단 텍스트(DB Settings, Light Mode)를 훨씬 밝은 실버 그레이로 톤업
+C_THEME_FG = "#86868B" if THEME == "light" else "#D1D1D6"
 
-    for pts, ang, dx, dy in [
-        ([x, y+radius, x, y, x+radius, y], range(90, 181, 1), x+radius, y+radius),
-        ([x+w-radius, y, x+w, y, x+w, y+radius], range(0, 91, 1), x+w-radius, y+radius),
-        ([x+w, y+h-radius, x+w, y+h, x+w-radius, y+h], range(270, 361, 1), x+w-radius, y+h-radius),
-        ([x+radius, y+h, x, y+h, x, y+h-radius], range(180, 271, 1), x+radius, y+h-radius)
-    ]:
-        for a in ang: pts.extend([dx + radius*math.cos(math.radians(a)), dy - radius*math.sin(math.radians(a))])
-        canvas.create_polygon(pts, fill=C_BG, outline=C_BG, smooth=True)
-
-    # =======================================================
-    # [수정] 배경과 분리시키는 뚜렷한 테두리(Border) 드로잉 추가
-    b_color = "#C7C7CC" if THEME == "light" else "#5C5C5E"
-    b_pts = []
-    for a in range(90, 181, 5): b_pts.extend([x+radius + radius*math.cos(math.radians(a)), y+radius - radius*math.sin(math.radians(a))])
-    for a in range(180, 271, 5): b_pts.extend([x+radius + radius*math.cos(math.radians(a)), y+h-radius - radius*math.sin(math.radians(a))])
-    for a in range(270, 361, 5): b_pts.extend([x+w-radius + radius*math.cos(math.radians(a)), y+h-radius - radius*math.sin(math.radians(a))])
-    for a in range(0, 91, 5): b_pts.extend([x+w-radius + radius*math.cos(math.radians(a)), y+radius - radius*math.sin(math.radians(a))])
-    canvas.create_polygon(b_pts, fill="", outline=b_color, width=1, tags=btn_tag)
-    # =======================================================
-
-    text_id = canvas.create_text(x + w/2, y + h/2, text=text, fill="#FFFFFF", font=("Segoe UI", f_size, "bold"), tags=btn_tag)
-
-    def on_enter(e): canvas.itemconfig(f"{btn_tag}_normal", state="hidden"); canvas.itemconfig(f"{btn_tag}_hover", state="normal"); canvas.config(cursor="hand2")
-    def on_leave(e): canvas.itemconfig(f"{btn_tag}_normal", state="normal"); canvas.itemconfig(f"{btn_tag}_hover", state="hidden"); canvas.config(cursor="")
-    def on_press(e): canvas.move(text_id, 0, 1)
-    def on_release(e): canvas.move(text_id, 0, -1); command()
-
-    for ev, handler in [("<Enter>", on_enter), ("<Leave>", on_leave), ("<ButtonPress-1>", on_press), ("<ButtonRelease-1>", on_release)]:
-        canvas.tag_bind(btn_tag, ev, handler)
-
-
-def create_diagonal_gradient_pill(canvas, x, y, w, h, radius, c_top, c_bot, h_top, h_bot, text, text_color, command, f_size=9, f_weight="normal"):
-    btn_tag = f"btn_pill_{x}_{y}_{random.randint(1,1000)}"
-    c1, c2 = hex_to_rgb(c_top), hex_to_rgb(c_bot)
-    hc1, hc2 = hex_to_rgb(h_top), hex_to_rgb(h_bot)
-
-    line_data_normal = []
-
-    for c in range(0, w + h, 1):
-        factor = (math.sin(math.pi * (c / (w + h)) - math.pi / 2) + 1) / 2
-        
-        base_r = int(c1[0] + (c2[0] - c1[0]) * factor)
-        base_g = int(c1[1] + (c2[1] - c1[1]) * factor)
-        base_b = int(c1[2] + (c2[2] - c1[2]) * factor)
-        
-        color = "#%02x%02x%02x" % (base_r, base_g, base_b)
-        h_color = "#%02x%02x%02x" % (int(hc1[0] + (hc2[0] - hc1[0]) * factor), int(hc1[1] + (hc2[1] - hc1[1]) * factor), int(hc1[2] + (hc2[2] - hc1[2]) * factor))
-        
-        x1, y1 = min(c, w), c - min(c, w)
-        y2, x2 = min(c, h), c - min(c, h)
-        l_norm = canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=color, width=3, tags=(btn_tag, f"{btn_tag}_normal"))
-        canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=h_color, width=3, state="hidden", tags=(btn_tag, f"{btn_tag}_hover"))
-        line_data_normal.append((l_norm, base_r, base_g, base_b, c))
-
-    breathing_buttons.append({
-        "canvas": canvas,
-        "lines": line_data_normal,
-        "phase": random.random() * math.pi
-    })
-
-    canvas.create_rectangle(x-6, y-6, x, y+h+6, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x+w, y-6, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x-6, y-6, x+w+6, y, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x-6, y+h, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
-
-    for pts, ang, dx, dy in [
-        ([x, y+radius, x, y, x+radius, y], range(90, 181, 1), x+radius, y+radius),
-        ([x+w-radius, y, x+w, y, x+w, y+radius], range(0, 91, 1), x+w-radius, y+radius),
-        ([x+w, y+h-radius, x+w, y+h, x+w-radius, y+h], range(270, 361, 1), x+w-radius, y+h-radius),
-        ([x+radius, y+h, x, y+h, x, y+h-radius], range(180, 271, 1), x+radius, y+h-radius)
-    ]:
-        for a in ang: pts.extend([dx + radius*math.cos(math.radians(a)), dy - radius*math.sin(math.radians(a))])
-        canvas.create_polygon(pts, fill=C_BG, outline=C_BG, smooth=True)
-
-    # =======================================================
-    # [수정] 알약 버튼도 배경과 분리시키는 뚜렷한 테두리 추가
-    b_color = "#C7C7CC" if THEME == "light" else "#5C5C5E"
-    b_pts = []
-    for a in range(90, 181, 5): b_pts.extend([x+radius + radius*math.cos(math.radians(a)), y+radius - radius*math.sin(math.radians(a))])
-    for a in range(180, 271, 5): b_pts.extend([x+radius + radius*math.cos(math.radians(a)), y+h-radius - radius*math.sin(math.radians(a))])
-    for a in range(270, 361, 5): b_pts.extend([x+w-radius + radius*math.cos(math.radians(a)), y+h-radius - radius*math.sin(math.radians(a))])
-    for a in range(0, 91, 5): b_pts.extend([x+w-radius + radius*math.cos(math.radians(a)), y+radius - radius*math.sin(math.radians(a))])
-    canvas.create_polygon(b_pts, fill="", outline=b_color, width=1, tags=btn_tag)
-    # =======================================================
-
-    text_id = canvas.create_text(x + w/2, y + h/2, text=text, fill=text_color, font=("Segoe UI", f_size, f_weight), tags=btn_tag)
-
-    def on_enter(e): canvas.itemconfig(f"{btn_tag}_normal", state="hidden"); canvas.itemconfig(f"{btn_tag}_hover", state="normal"); canvas.config(cursor="hand2")
-    def on_leave(e): canvas.itemconfig(f"{btn_tag}_normal", state="normal"); canvas.itemconfig(f"{btn_tag}_hover", state="hidden"); canvas.config(cursor="")
-    def on_press(e): canvas.move(text_id, 0, 1)
-    def on_release(e): canvas.move(text_id, 0, -1); command()
-
-    for ev, handler in [("<Enter>", on_enter), ("<Leave>", on_leave), ("<ButtonPress-1>", on_press), ("<ButtonRelease-1>", on_release)]:
-        canvas.tag_bind(btn_tag, ev, handler)
-
+C_ACCENT = "#0071E3" if THEME == "light" else "#FFFFFF"
+C_ACCENT_HOVER = "#47A1FF" if THEME == "light" else "#D1D1D6"
 
 
 
@@ -145,26 +26,12 @@ def create_diagonal_gradient_pill(canvas, x, y, w, h, radius, c_top, c_bot, h_to
         add_c = ("#D0E8FF", "#A1D1FF", "#1D1D1F")
         del_c = ("#FFC6C4", "#FF9E9B", "#1D1D1F")
     else:
-        # [수정] Add / Delete 버튼 톤업
-        add_c = ("#545456", "#3A3A3C", "#757578", "#48484A", "#FFFFFF")
-        del_c = ("#48484A", "#2C2C2E", "#636366", "#3A3A3C", "#EAEAEA")
+        # [수정] Add / Delete 버튼 확실하게 톤업 (더 밝은 그레이와 실버 매칭)
+        add_c = ("#757578", "#48484A", "#98989D", "#5C5C5E", "#FFFFFF")
+        del_c = ("#636366", "#3A3A3C", "#86868B", "#48484A", "#FFFFFF")
         
     create_diagonal_gradient_pill(cvs_ctrl, 5, 2, 60, 26, 3, add_c[0], add_c[1], add_c[2], add_c[3], "Add New", add_c[4], on_add, f_weight="normal")
     create_diagonal_gradient_pill(cvs_ctrl, 70, 2, 55, 26, 3, del_c[0], del_c[1], del_c[2], del_c[3], "Delete", del_c[4], on_delete, f_size=8, f_weight="normal")
-
-    # ...(중략)...
-
-    canvas_save = tk.Canvas(frame_btns, width=340, height=65, bg=C_BG, highlightthickness=0)
-    canvas_save.pack()
-    
-    if THEME == "light":
-        c_save = ("#5E5CE6", "#4B49B7", "#7D7AFF", "#5A58D6")
-    else:
-        # [수정] Save 버튼 톤업 (더 메탈릭하고 밝게)
-        c_save = ("#6C6C70", "#48484A", "#8E8E93", "#5C5C5E")
-        
-    create_diagonal_gradient_button(canvas_save, 50, 10, 240, 45, 10, c_save[0], c_save[1], c_save[2], c_save[3], "Save & Apply Profile", on_save)
-
 
 
 
@@ -177,10 +44,15 @@ def create_diagonal_gradient_pill(canvas, x, y, w, h, radius, c_top, c_bot, h_to
         c_export = ("#47A1FF", "#0071E3", "#66B2FF", "#1A82F0")
         c_import = ("#3EE068", "#34C759", "#5CF282", "#41D868")
     else:
-        # [수정] 메인 버튼 톤업 (배경 묻힘 현상 완벽 해결)
-        c_export = ("#545456", "#3A3A3C", "#757578", "#48484A") 
+        # [수정] Export 메인 버튼 톤업 (칙칙한 먹색에서 밝은 스틸 그레이로)
+        c_export = ("#757578", "#48484A", "#98989D", "#5C5C5E") 
         c_import = ("#6C6C70", "#48484A", "#8E8E93", "#5C5C5E") 
 
     create_diagonal_gradient_button(canvas_main, 110, 10, 240, 45, 10, c_export[0], c_export[1], c_export[2], c_export[3], "Export Master Template", export_template)
     create_diagonal_gradient_button(canvas_main, 110, 75, 240, 45, 10, c_import[0], c_import[1], c_import[2], c_import[3], "Import & Sync to DB", lambda: import_data(root))
+
+
+
+
+
 
