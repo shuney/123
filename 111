@@ -1,21 +1,50 @@
-Unhandled exception in script
-Failed to execute script 'pyi_rth_tkinter' due to unhandled exception: Tcl data directory
-"C\Users\shyuni.kim\AppData\Local\Temp\_MEI443002\_tcl)data" not found.
+# [수정] exe(onefile) 환경에서 재실행 시 발생하는 _MEI 임시 폴더 증발/충돌 완벽 해결
+def toggle_theme(root):
+    new_theme = "dark" if app_data.get("theme", "light") == "light" else "light"
+    app_data["theme"] = new_theme
+    try:
+        app_data["win_x"] = root.winfo_x()
+        app_data["win_y"] = root.winfo_y()
+    except Exception:
+        pass
+    save_config()
+    
+    # ========================================================
+    import subprocess
+    env = os.environ.copy()
+    
+    # 1. 구버전 프로그램이 쓰던 찌꺼기 경로 기억을 완전히 삭제
+    env.pop('TCL_LIBRARY', None)
+    env.pop('TK_LIBRARY', None)
+    env.pop('_MEIPASS2', None)
+    
+    # 2. 강제 덮어쓰기(execl) 대신, 새 창을 독립적으로 띄우고(Popen) 기존 창은 정상 종료
+    subprocess.Popen([sys.executable] + sys.argv[1:], env=env)
+    root.destroy()
+    sys.exit(0)
+    # ========================================================
 
 
-Traceback (most recent call last):
-  File "pyi_rth__tkinter.py", line 36, in <module>
-  File "pyi_rth__tkinter.py", line 28, in _pyi_rthook
-FileNotFoundError: Tcl data directory "C:\Users\shyuni.kim\AppData\Local\Temp\_MEI443002\_tcl_data" not found.
 
 
 
 
----------------------------
-Warning
----------------------------
-Failed to remove temporary directory: C:\Users\shyuni.kim\AppData\Local\Temp\_MEI443002
+# ----------------------------------
+# main() 함수 안쪽 메인 버튼 정의 부분
+# ----------------------------------
+    canvas_main = tk.Canvas(root, width=460, height=150, bg=C_BG, highlightthickness=0)
+    canvas_main.pack()
 
----------------------------
-확인   
----------------------------
+    if THEME == "light":
+        c_export = ("#47A1FF", "#0071E3", "#66B2FF", "#1A82F0")
+        c_import = ("#3EE068", "#34C759", "#5CF282", "#41D868")
+    else:
+        # Export 메인: 묵직한 플래티넘 실버
+        c_export = ("#8E8E93", "#636366", "#A1A1A6", "#757578") 
+        # Import 메인: 차분한 스틸 그레이
+        c_import = ("#5C5C5E", "#3A3A3C", "#757578", "#48484A") 
+
+    # [수정] x시작점을 130으로 땡기고, 폭(w)을 200으로 줄여 허전함 해결 (완벽한 중앙 정렬)
+    create_diagonal_gradient_button(canvas_main, 130, 10, 200, 45, 10, c_export[0], c_export[1], c_export[2], c_export[3], "Export Master Template", export_template)
+    create_diagonal_gradient_button(canvas_main, 130, 75, 200, 45, 10, c_import[0], c_import[1], c_import[2], c_import[3], "Import & Sync to DB", lambda: import_data(root))
+
