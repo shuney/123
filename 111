@@ -1,57 +1,9 @@
-def create_diagonal_gradient_pill(canvas, x, y, w, h, radius, c_top, c_bot, h_top, h_bot, text, text_color, command, f_size=9, f_weight="bold"):
-    btn_tag = f"btn_pill_{x}_{y}_{random.randint(1,1000)}"
-    c1, c2 = hex_to_rgb(c_top), hex_to_rgb(c_bot)
-    hc1, hc2 = hex_to_rgb(h_top), hex_to_rgb(h_bot)
+    # [수정 전]
+    # create_diagonal_gradient_pill(cvs_ctrl, 5, 2, 60, 26, 3, add_c[0], add_c[1], add_c[0], add_c[1], "Add New", add_c[2], on_add, f_weight="normal")
+    # create_diagonal_gradient_pill(cvs_ctrl, 70, 2, 55, 26, 3, del_c[0], del_c[1], del_c[0], del_c[1], "Delete", del_c[2], on_delete, f_size=8, f_weight="normal")
 
-    line_data_normal = []
-
-    for c in range(0, w + h, 1):
-        factor = c / (w + h)
-        
-        # 기본 컬러 계산 (애니메이션에 쓰일 RGB 추출)
-        base_r = int(c1[0] + (c2[0] - c1[0]) * factor)
-        base_g = int(c1[1] + (c2[1] - c1[1]) * factor)
-        base_b = int(c1[2] + (c2[2] - c1[2]) * factor)
-        
-        color = "#%02x%02x%02x" % (base_r, base_g, base_b)
-        h_color = "#%02x%02x%02x" % (int(hc1[0] + (hc2[0] - hc1[0]) * factor), int(hc1[1] + (hc2[1] - hc1[1]) * factor), int(hc1[2] + (hc2[2] - hc1[2]) * factor))
-        
-        x1, y1 = min(c, w), c - min(c, w)
-        y2, x2 = min(c, h), c - min(c, h)
-        l_norm = canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=color, width=3, tags=(btn_tag, f"{btn_tag}_normal"))
-        canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=h_color, width=3, state="hidden", tags=(btn_tag, f"{btn_tag}_hover"))
-        
-        # 애니메이션 배열에 선 데이터 추가
-        line_data_normal.append((l_norm, base_r, base_g, base_b, c))
-
-    # [핵심] 메인 버튼처럼 숨쉬기 애니메이션 루프에 등록!
-    breathing_buttons.append({
-        "canvas": canvas,
-        "lines": line_data_normal,
-        "phase": random.random() * math.pi
-    })
-
-    canvas.create_rectangle(x-6, y-6, x, y+h+6, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x+w, y-6, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x-6, y-6, x+w+6, y, fill=C_BG, outline=C_BG)
-    canvas.create_rectangle(x-6, y+h, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
-
-    for pts, ang, dx, dy in [
-        ([x, y+radius, x, y, x+radius, y], range(90, 181, 1), x+radius, y+radius),
-        ([x+w-radius, y, x+w, y, x+w, y+radius], range(0, 91, 1), x+w-radius, y+radius),
-        ([x+w, y+h-radius, x+w, y+h, x+w-radius, y+h], range(270, 361, 1), x+w-radius, y+h-radius),
-        ([x+radius, y+h, x, y+h, x, y+h-radius], range(180, 271, 1), x+radius, y+h-radius)
-    ]:
-        for a in ang: pts.extend([dx + radius*math.cos(math.radians(a)), dy - radius*math.sin(math.radians(a))])
-        canvas.create_polygon(pts, fill=C_BG, outline=C_BG, smooth=True)
-
-    # 폰트를 파라미터(f_weight)에 따라 적용
-    text_id = canvas.create_text(x + w/2, y + h/2, text=text, fill=text_color, font=("Segoe UI", f_size, f_weight), tags=btn_tag)
-
-    def on_enter(e): canvas.itemconfig(f"{btn_tag}_normal", state="hidden"); canvas.itemconfig(f"{btn_tag}_hover", state="normal"); canvas.config(cursor="hand2")
-    def on_leave(e): canvas.itemconfig(f"{btn_tag}_normal", state="normal"); canvas.itemconfig(f"{btn_tag}_hover", state="hidden"); canvas.config(cursor="")
-    def on_press(e): canvas.move(text_id, 0, 1)
-    def on_release(e): canvas.move(text_id, 0, -1); command()
-
-    for ev, handler in [("<Enter>", on_enter), ("<Leave>", on_leave), ("<ButtonPress-1>", on_press), ("<ButtonRelease-1>", on_release)]:
-        canvas.tag_bind(btn_tag, ev, handler)
+    # ========================================================
+    # [수정 후] 폰트를 볼드체로 변경
+    create_diagonal_gradient_pill(cvs_ctrl, 5, 2, 60, 26, 3, add_c[0], add_c[1], add_c[0], add_c[1], "Add New", add_c[2], on_add, f_weight="bold")
+    create_diagonal_gradient_pill(cvs_ctrl, 70, 2, 55, 26, 3, del_c[0], del_c[1], del_c[0], del_c[1], "Delete", del_c[2], on_delete, f_size=8, f_weight="bold")
+    # ========================================================
