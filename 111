@@ -1,8 +1,1123 @@
----------------------------
-Warning
----------------------------
-Failed to remove temporary directory: C:\Users\shyuni.kim\AppData\Local\Temp\_MEI6522
+# -*- coding: utf-8 -*-
+"""
+PRM: Primavera P6 Resource Manager
+Version: 0.9.15 Global Edition
 
----------------------------
-확인   
----------------------------
+□ 패치노트:
+    - [시스템] PyInstaller 환경에서 재실행 시 발생하는 임시폴더(_MEI) 삭제 실패 오류(Lock/Crash) 완벽 해결 (DETACHED_PROCESS 도입).
+    - [디자인] 다크 모드 한정 "VS Code Dark Theme" 적용 (Consolas 폰트, 파스텔 신택스 하이라이팅 컬러 적용).
+"""
+
+import os
+import sys
+import json
+import math
+import time
+import random
+import traceback
+import threading
+import tkinter as tk
+import tkinter.font as tkfont
+from tkinter import ttk, filedialog, messagebox, simpledialog
+from datetime import date, datetime
+
+import pandas as pd
+from sqlalchemy import create_engine, text
+
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+
+import pymssql
+
+# ==========================================
+# 0. Global Settings & Colors (VS Code Theme Support)
+# ==========================================
+CONFIG_FILE = "prm_config.json"
+
+def resource_path(relative_path):
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+ICON_FILE = resource_path("prm.ico")
+
+app_data = {
+    "theme": "light",
+    "win_x": None,
+    "win_y": None,
+    "current_profile": "Default",
+    "profiles": {
+        "Default": {"TYPE": "SQL Server (Remote)", "HOST": "USAPO260916\\SQLEXPRESS", "NAME": "TESTDB", "USER": "sa", "PASS": "rlatmdgus96"}
+    }
+}
+
+def load_config():
+    global app_data
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                saved_data = json.load(f)
+                if "profiles" in saved_data: app_data.update(saved_data)
+        except: pass
+
+load_config()
+
+THEME = app_data.get("theme", "light")
+
+# [핵심] 다크 모드일 때만 코딩용 폰트(Consolas) 적용, 라이트 모드는 기본(Segoe UI)
+C_FONT = "Segoe UI" if THEME == "light" else "Consolas"
+
+# VS Code Backgrounds
+C_BG = "#F5F5F7" if THEME == "light" else "#1E1E1E"
+C_SEC_BG = "#FFFFFF" if THEME == "light" else "#252526"
+
+# VS Code Text Colors
+C_FG = "#1D1D1F" if THEME == "light" else "#D4D4D4" 
+C_SEC_FG = "#48484A" if THEME == "light" else "#569CD6" # Keyword Blue
+C_BORDER = "#D1D1D6" if THEME == "light" else "#3C3C3C"
+
+C_SUBTITLE_FG = "#86868B" if THEME == "light" else "#6A9955" # Comment Green
+C_THEME_FG = "#86868B" if THEME == "light" else "#4EC9B0" # Type Mint
+
+C_ACCENT = "#0071E3" if THEME == "light" else "#C586C0" # Control Purple
+C_ACCENT_HOVER = "#47A1FF" if THEME == "light" else "#DCDCAA" # Function Yellow
+
+def save_config():
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(app_data, f, indent=4)
+    except Exception as e:
+        messagebox.showerror("Error", f"Failed to save configuration:\n{e}")
+
+def get_active_db():
+    current = app_data.get("current_profile", "Default")
+    return app_data["profiles"].get(current, app_data["profiles"]["Default"])
+
+def get_engine(timeout=None):
+    db = get_active_db()
+    db_host = str(db.get('HOST', '')).replace('\\\\', '\\')
+    if db.get("TYPE") == "Local File (SQLite)" or db_host.startswith("sqlite:///"):
+        path = db_host.replace("sqlite:///", "")
+        return create_engine(f"sqlite:///{path}")
+    
+    conn_str = f"mssql+pymssql://{db['USER']}:{db['PASS']}@{db_host}/{db['NAME']}"
+    if timeout:
+        return create_engine(conn_str, connect_args={'login_timeout': timeout})
+    return create_engine(conn_str)
+
+# ==========================================
+# 0-1. UI Components: Tooltip & Loading Spinner
+# ==========================================
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tw = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 25
+        self.tw = tk.Toplevel(self.widget)
+        self.tw.wm_overrideredirect(True)
+        self.tw.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tw, text=self.text, justify='left', background="#333333", foreground="white", relief='solid', borderwidth=0, font=(C_FONT, 8)).pack(ipadx=5, ipady=3)
+
+    def leave(self, event=None):
+        if self.tw:
+            self.tw.destroy()
+            self.tw = None
+
+class LoadingOverlay:
+    def __init__(self, parent):
+        self.parent = parent
+        self.overlay = tk.Toplevel(parent)
+        self.overlay.overrideredirect(True)
+        self.overlay.attributes("-alpha", 0.85)
+        self.overlay.configure(bg="#000000")
+        
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        self.overlay.geometry(f"{pw}x{ph}+{px}+{py}")
+        self.overlay.grab_set()
+
+        self.canvas = tk.Canvas(self.overlay, width=100, height=100, bg="#000000", highlightthickness=0)
+        self.canvas.place(relx=0.5, rely=0.45, anchor="center")
+        self.text = tk.Label(self.overlay, text="Syncing Database...", font=(C_FONT, 10, "bold"), bg="#000000", fg="#FFFFFF")
+        self.text.place(relx=0.5, rely=0.65, anchor="center")
+        
+        self.angle = 0
+        self.running = True
+        self.animate()
+
+    def animate(self):
+        if not self.running: return
+        self.canvas.delete("spinner")
+        self.angle = (self.angle + 20) % 360
+        self.canvas.create_arc(10, 10, 90, 90, start=self.angle, extent=120, outline="#0071E3", width=5, style="arc", tags="spinner")
+        self.canvas.create_arc(10, 10, 90, 90, start=self.angle+180, extent=120, outline="#66B2FF", width=5, style="arc", tags="spinner")
+        self.parent.after(30, self.animate)
+
+    def destroy(self):
+        self.running = False
+        self.overlay.grab_release()
+        self.overlay.destroy()
+
+# ==========================================
+# 1. Excel Generation Common Styles (Excel 내부는 Segoe UI 유지)
+# ==========================================
+SHEET_MASTER, SHEET_CAL, SHEET_MANUAL = "Resource Master", "Calendar List", "Manual"
+PATH_DELIM, DEFAULT_DAY_HR_CNT = ">", 8.0
+
+RSRC_TYPE_MAP = {
+    "labor": "RT_Labor", "nonlabor": "RT_Equip", "material": "RT_Mat",
+    "rt_labor": "RT_Labor", "rt_equip": "RT_Equip", "rt_mat": "RT_Mat"
+}
+REVERSE_TYPE_MAP = {"RT_Labor": "Labor", "RT_Equip": "NonLabor", "RT_Mat": "Material"}
+MANDATORY_COLS = ["rsrc_short_name", "rsrc_name", "rsrc_type"]
+
+def apply_pro_excel_styles(ws, is_manual=False, is_master=False, existing_count=0):
+    font_name = "Segoe UI"
+    font_base = Font(name=font_name, size=10)
+    font_header_normal = Font(name=font_name, size=11, bold=True, color="FFFFFF")
+    font_header_mandatory = Font(name=font_name, size=11, bold=True, color="FFD700") 
+    font_row_header = Font(name=font_name, size=10, bold=True, color="FFFFFF")
+    
+    fill_header = PatternFill(start_color="2B3A55", end_color="2B3A55", fill_type="solid") 
+    fill_existing_default = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    fill_existing_master = PatternFill(start_color="F3F3F3", end_color="F3F3F3", fill_type="solid") 
+    fill_new_olive = PatternFill(start_color="F8FAF4", end_color="F8FAF4", fill_type="solid") 
+    fill_new_mandatory = PatternFill(start_color="FFFDE7", end_color="FFFDE7", fill_type="solid") 
+    
+    light_border = Side(style='thin', color="BFBFBF")
+    thick_bottom_side = Side(style='thin', color="2B3A55") 
+    
+    thin_border = Border(left=light_border, right=light_border, top=light_border, bottom=light_border)
+    separator_border = Border(left=light_border, right=light_border, top=light_border, bottom=thick_bottom_side)
+    
+    wrap_alignment = Alignment(wrapText=True, vertical='center')
+    center_alignment = Alignment(horizontal='center', vertical='center')
+
+    ws.sheet_view.showGridLines = False
+    if not is_manual: ws.freeze_panes = 'B2' 
+    ws.row_dimensions[1].height = 26  
+
+    col_widths = {}
+    for row in ws.iter_rows():
+        for cell in row:
+            is_mandatory_col = any(m in str(ws.cell(1, cell.column).value) for m in MANDATORY_COLS)
+            cell.border = thin_border
+            
+            if cell.row == 1:
+                cell.fill = fill_header
+                cell.font = font_header_mandatory if is_mandatory_col else font_header_normal
+                if is_manual: cell.alignment = wrap_alignment
+            else:
+                if is_manual: 
+                    cell.font = font_base
+                    cell.alignment = wrap_alignment
+                else:
+                    if cell.row <= existing_count + 1: 
+                        if is_master and cell.column == 1: 
+                            cell.fill = fill_header
+                            cell.font = font_row_header
+                            cell.alignment = center_alignment
+                        else:
+                            cell.fill = fill_existing_master if is_master else fill_existing_default
+                            cell.font = font_base
+                        
+                        if cell.row == existing_count + 1: cell.border = separator_border
+                    else:
+                        cell.font = font_base
+                        if is_master:
+                            if cell.column == 1:
+                                cell.fill = fill_header 
+                            else:
+                                cell.fill = fill_new_olive
+                        else:
+                            if is_mandatory_col: cell.fill = fill_new_mandatory
+            
+            if not is_manual and "rate_start_date" in str(ws.cell(1, cell.column).value): cell.number_format = 'YYYY-MM-DD'
+            val_str = str(cell.value) if cell.value else ""
+            length = sum(1.5 if ord(c) > 127 else 1.1 for c in val_str) 
+            col_letter = cell.column_letter
+            if length > col_widths.get(col_letter, 0): col_widths[col_letter] = length
+
+    for col_letter, width in col_widths.items():
+        if is_master and col_letter == 'A':
+            ws.column_dimensions[col_letter].width = 4.5
+        else:
+            ws.column_dimensions[col_letter].width = 32 if is_manual else max(16, width + 5)
+            
+    if is_manual: 
+        ws.row_dimensions[2].height = 55
+        ws.row_dimensions[3].height = 55
+
+# ==========================================
+# 2. Export Layout Template
+# ==========================================
+def export_template():
+    today_str = datetime.now().strftime("%Y%m%d")
+    save_path = filedialog.asksaveasfilename(
+        title="Save Master Template", defaultextension=".xlsx", 
+        initialfile=f"PRM_Resource_Master_{today_str}.xlsx", filetypes=[("Excel files", "*.xlsx")]
+    )
+    if not save_path: return
+
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            try:
+                res_tree = conn.execute(text("SELECT rsrc_id, parent_rsrc_id, rsrc_short_name FROM rsrc"))
+                tree_rows = {r[0]: (r[1], str(r[2]).strip() if r[2] else "") for r in res_tree}
+            except Exception: tree_rows = {}
+                
+            path_cache = {}
+            def get_path(rid, visited=None):
+                if visited is None: visited = set()
+                if rid in path_cache: return path_cache[rid]
+                if rid in visited: return ""
+                visited.add(rid)
+                pid, sname = tree_rows.get(rid, (None, ""))
+                if pid and pid in tree_rows: p_path = get_path(pid, visited); full = f"{p_path}{PATH_DELIM}{sname}" if p_path else sname
+                else: full = sname
+                path_cache[rid] = full
+                return full
+
+            try:
+                res_cal = conn.execute(text("SELECT clndr_id, clndr_name, day_hr_cnt FROM CALENDAR"))
+                cal_dict = {cid: (f"{cid}: {cname}", float(dhc or 8.0)) for cid, cname, dhc in res_cal}
+            except Exception: cal_dict = {1: ("1: Default Calendar", 8.0)}
+            
+            sql_data = """
+                SELECT r.rsrc_id, r.rsrc_short_name, r.rsrc_name, r.rsrc_type, r.clndr_id, r.def_qty_per_hr,
+                       max_rate.cost_per_qty, max_rate.start_date, ISNULL(tr_count.cnt, 0) as usage_cnt
+                FROM rsrc r
+                LEFT JOIN (SELECT rsrc_id, COUNT(*) as cnt FROM TASKRSRC GROUP BY rsrc_id) tr_count ON r.rsrc_id = tr_count.rsrc_id
+                LEFT JOIN (SELECT rsrc_id, cost_per_qty, start_date, ROW_NUMBER() OVER(PARTITION BY rsrc_id ORDER BY start_date DESC) as rn FROM RSRCRATE) max_rate ON r.rsrc_id = max_rate.rsrc_id AND max_rate.rn = 1
+            """
+            try: res_data = conn.execute(text(sql_data))
+            except Exception: res_data = conn.execute(text("SELECT rsrc_id, rsrc_short_name, rsrc_name, rsrc_type, clndr_id, def_qty_per_hr, NULL, NULL, 0 FROM rsrc"))
+                
+            raw_master = []
+            for row in res_data:
+                rid, sname, name, rtype, cid, qty_hr, cost, sdate, usage = row
+                cal_info = cal_dict.get(cid, ("", 8.0))
+                units_per_day = float(qty_hr) * cal_info[1] if qty_hr is not None else ""
+                
+                raw_master.append({
+                    "rsrc_short_name": str(sname).strip() if sname else "", "rsrc_name": name, 
+                    "rsrc_type": REVERSE_TYPE_MAP.get(rtype, "Labor"),
+                    "parent_path": PATH_DELIM.join(get_path(rid).split(PATH_DELIM)[:-1]) if PATH_DELIM in get_path(rid) else "",
+                    "clndr_id (ID:Name)": cal_info[0], "cost_per_qty": cost if cost is not None else "",
+                    "rate_start_date": sdate.strftime('%Y-%m-%d') if isinstance(sdate, (date, datetime)) else "",
+                    "units_per_time": round(units_per_day, 2) if units_per_day else "",
+                    "Used_In_Activities": usage, "Delete": ""
+                })
+
+            raw_master.sort(key=lambda x: (x["parent_path"], x["rsrc_short_name"]))
+
+            master_data = []
+            for i, item in enumerate(raw_master):
+                new_dict = {"No.": i + 1}
+                new_dict.update(item)
+                master_data.append(new_dict)
+
+        existing_count = len(master_data) 
+        df_input = pd.DataFrame(master_data)
+        if df_input.empty:
+            df_input = pd.DataFrame(columns=["No.", "rsrc_short_name", "rsrc_name", "rsrc_type", "parent_path", "clndr_id (ID:Name)", "cost_per_qty", "rate_start_date", "units_per_time", "Used_In_Activities", "Delete"])
+
+        empty_rows = pd.DataFrame([[""] * len(df_input.columns) for _ in range(50)], columns=df_input.columns)
+        df_input = pd.concat([df_input, empty_rows], ignore_index=True)
+
+        manual_data = [
+            ["[연번] 넘버링 표기 (수정 불가)", "[고유 코드] 기존 ID 기입 (수정 불가, 변경시 신규 리소스 생성)", "[리소스명] 시스템 표기 이름", "[타입] Labor, NonLabor, Material 중 택1", "[계층 구조] 상위 폴더 경로 기술 (예: 토목>철근)", "[캘린더] 드롭다운 목록에서 매핑 선택", "[단가] 시간당 기본 정산 단가", "[적용 시작일] YYYY-MM-DD 형식", "[최대 투입량] 하루 기준 투입 시간 (기본 8h)", "[읽기전용] 사용 중인 액티비티 개수", "리소스 완전 삭제 시 'Delete' 기입"],
+            ["[No.] Index number.", "[Unique ID] Modifying this creates a new resource.", "[Resource Name]", "[Type] Labor, NonLabor, or Material", "[Hierarchy] Parent path (e.g., Civil>Rebar). Blank = Root", "[Calendar] Select from dropdown.", "[Rate] Cost per quantity", "[Effective Date] Format: YYYY-MM-DD", "[Max Units/Time] h/d. Defaults to 100% if blank.", "[Read-Only] Number of assigned activities.", "Select 'Delete' to permanently remove the resource."]
+        ]
+        manual_df = pd.DataFrame(manual_data, columns=df_input.columns)
+        df_cal_list = pd.DataFrame([(k, v[0].split(": ", 1)[1] if ": " in v[0] else v[0], v[0]) for k, v in cal_dict.items()], columns=["clndr_id", "clndr_name", "Dropdown_Format"])
+
+        with pd.ExcelWriter(save_path, engine="openpyxl") as writer:
+            df_input.to_excel(writer, sheet_name=SHEET_MASTER, index=False)
+            df_cal_list.to_excel(writer, sheet_name=SHEET_CAL, index=False)
+            manual_df.to_excel(writer, sheet_name=SHEET_MANUAL, index=False)
+
+            ws_master, ws_cal, ws_manual = writer.sheets[SHEET_MASTER], writer.sheets[SHEET_CAL], writer.sheets[SHEET_MANUAL]
+            max_row, cal_max_row = len(df_input) + 1, len(df_cal_list) + 1
+            
+            dv_type = DataValidation(type="list", formula1='"Labor,NonLabor,Material"', allow_blank=True)
+            ws_master.add_data_validation(dv_type)
+            dv_type.add(f"D2:D{max_row}")
+
+            dv_del = DataValidation(type="list", formula1='"Delete"', allow_blank=True)
+            ws_master.add_data_validation(dv_del)
+            dv_del.add(f"K2:K{max_row}")
+
+            dv_cal = DataValidation(type="list", formula1=f"='{SHEET_CAL}'!$C$2:$C${cal_max_row}", allow_blank=True)
+            ws_master.add_data_validation(dv_cal)
+            dv_cal.add(f"F2:F{max_row}")
+            ws_cal.column_dimensions['C'].hidden = True
+
+            apply_pro_excel_styles(ws_master, is_master=True, existing_count=existing_count)
+            apply_pro_excel_styles(ws_cal)
+            apply_pro_excel_styles(ws_manual, is_manual=True)
+
+            ws_master.sheet_properties.tabColor = "FFCD2D" 
+            ws_cal.sheet_properties.tabColor = "595959"
+            ws_manual.sheet_properties.tabColor = "595959"
+
+        messagebox.showinfo("Success", "Master template successfully generated.")
+    except Exception as e: messagebox.showerror("Error", f"Failed to generate template:\n{e}")
+
+# ==========================================
+# 3. Import & DB Sync
+# ==========================================
+def backup_database(engine):
+    backup_dir = "backups"
+    if not os.path.exists(backup_dir): os.makedirs(backup_dir)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"backup_db_{timestamp}.xlsx")
+    
+    with engine.connect() as conn:
+        df_rsrc = pd.read_sql("SELECT * FROM rsrc", conn)
+        df_rate = pd.read_sql("SELECT * FROM RSRCRATE", conn)
+    
+    with pd.ExcelWriter(backup_path) as writer:
+        df_rsrc.to_excel(writer, sheet_name="rsrc_backup", index=False)
+        df_rate.to_excel(writer, sheet_name="rate_backup", index=False)
+    return backup_path
+
+def import_data_logic(file_path, df, parent_window):
+    engine = get_engine()
+    
+    try:
+        with engine.connect() as conn:
+            existing_rsrc = {}
+            for r in conn.execute(text("SELECT rsrc_id, rsrc_short_name FROM rsrc")):
+                sn = str(r[1]).strip().upper()
+                existing_rsrc.setdefault(sn, []).append(r[0])
+    except Exception as e:
+        messagebox.showerror("Connection Error", "Failed to connect to the database.")
+        return
+
+    import copy
+    sim_rsrc = copy.deepcopy(existing_rsrc)
+    add_c, up_c, del_c = 0, 0, 0
+    for idx, row in df.iterrows():
+        sn = str(row.get("rsrc_short_name", "")).strip().upper()
+        if not sn: continue
+        is_del = str(row.get("Delete", "")).strip().lower() == "delete"
+        exists = sn in sim_rsrc and len(sim_rsrc[sn]) > 0
+
+        if is_del and exists:
+            del_c += 1
+            sim_rsrc[sn].pop(0) 
+        elif not is_del and exists:
+            up_c += 1
+            sim_rsrc[sn].pop(0) 
+        elif not is_del and not exists:
+            add_c += 1
+            sim_rsrc.setdefault(sn, []).append("temp_id") 
+
+    if add_c == 0 and up_c == 0 and del_c == 0:
+        messagebox.showinfo("Info", "No new data to update.")
+        return
+
+    msg = f"Synchronization preview:\n\n• Add: {add_c}\n• Update: {up_c}\n• Delete: {del_c}\n\nDo you want to proceed?"
+    if not messagebox.askyesno("Dry Run", msg):
+        return
+
+    overlay = LoadingOverlay(parent_window)
+
+    def run_sync():
+        try:
+            backup_database(engine)
+            
+            with engine.begin() as conn:
+                existing_ids = set()
+                for lst in existing_rsrc.values(): existing_ids.update(lst)
+                
+                try:
+                    cal_info = {r[0]: float(r[1] or 8.0) for r in conn.execute(text("SELECT clndr_id, day_hr_cnt FROM CALENDAR"))}
+                    default_cal_id = conn.execute(text("SELECT TOP 1 clndr_id FROM calendar WHERE default_flag='Y'")).scalar()
+                except Exception: cal_info = {1: 8.0}; default_cal_id = 1
+                    
+                try: seq_num = (conn.execute(text("SELECT ISNULL(MAX(rsrc_seq_num), 0) FROM rsrc")).scalar() or 0) + 1
+                except Exception: seq_num = 1
+                try: rate_id_counter = (conn.execute(text("SELECT ISNULL(MAX(rsrc_rate_id), 0) FROM RSRCRATE")).scalar() or 0) + 1
+                except Exception: rate_id_counter = 1
+
+                path_to_id = {}
+                try:
+                    res = conn.execute(text("SELECT rsrc_id, parent_rsrc_id, rsrc_short_name FROM rsrc"))
+                    rows = {r[0]: (r[1], str(r[2]).strip() if r[2] else "") for r in res}
+                    def build_path(rid, visited=None):
+                        if visited is None: visited = set()
+                        if rid in visited: return ""
+                        visited.add(rid)
+                        pid, sname = rows.get(rid, (None, ""))
+                        if pid and pid in rows: return f"{build_path(pid, visited)}{PATH_DELIM}{sname}" if build_path(pid, visited) else sname
+                        return sname
+                    
+                    for rid in rows.keys(): 
+                        full_path = build_path(rid)
+                        if full_path: path_to_id[full_path.strip().upper()] = rid
+                except Exception: pass
+
+                success_cnt, update_cnt, delete_cnt = 0, 0, 0
+
+                for idx, row in df.iterrows():
+                    short_name_raw = str(row.get("rsrc_short_name", "")).strip()
+                    if not short_name_raw: continue 
+                    
+                    lookup_short_name = short_name_raw.upper()
+                    delete_flag = str(row.get("Delete", "")).strip().lower()
+                    
+                    target_id = None
+                    if lookup_short_name in existing_rsrc and len(existing_rsrc[lookup_short_name]) > 0:
+                        target_id = existing_rsrc[lookup_short_name][0]
+
+                    if delete_flag == "delete":
+                        if not target_id: continue 
+                        try:
+                            conn.execute(text("DELETE FROM RSRCRATE WHERE rsrc_id = :id"), {"id": target_id})
+                            conn.execute(text("DELETE FROM rsrc WHERE rsrc_id = :id"), {"id": target_id})
+                            delete_cnt += 1
+                            existing_rsrc[lookup_short_name].pop(0)
+                        except Exception: raise RuntimeError(f"[{short_name_raw}] Deletion failed. Check 'Used_In_Activities' column.")
+                        continue
+
+                    rsrc_name = str(row.get("rsrc_name", "")).strip()
+                    rsrc_type = RSRC_TYPE_MAP.get(str(row.get("rsrc_type", "")).strip().lower(), "RT_Labor")
+                    cal_id_raw = str(row.get("clndr_id (ID:Name)", "")).split(":")[0].strip()
+                    clndr_id = int(float(cal_id_raw)) if cal_id_raw else default_cal_id
+                    
+                    units_raw = str(row.get("units_per_time", "")).strip()
+                    day_hr_cnt = cal_info.get(clndr_id, DEFAULT_DAY_HR_CNT)
+                    def_qty_per_hr = float(units_raw) / float(day_hr_cnt) if units_raw else 1.0
+
+                    parent_id = None
+                    raw_path = str(row.get("parent_path", "")).strip()
+                    if raw_path:
+                        parts = [p.strip() for p in raw_path.split(PATH_DELIM) if p.strip()]
+                        running_path = ""
+                        for segment in parts:
+                            running_path = f"{running_path}{PATH_DELIM}{segment}" if running_path else segment
+                            lookup_path = running_path.strip().upper()
+                            lookup_seg = segment.strip().upper()
+                            
+                            if lookup_path in path_to_id: 
+                                parent_id = path_to_id[lookup_path]
+                            elif lookup_seg in existing_rsrc and len(existing_rsrc[lookup_seg]) > 0:
+                                parent_id = existing_rsrc[lookup_seg][0]
+                                path_to_id[lookup_path] = parent_id
+                            else:
+                                new_node_id = generate_unique_rsrc_id(existing_ids)
+                                conn.execute(text("INSERT INTO rsrc (rsrc_id, parent_rsrc_id, clndr_id, rsrc_short_name, rsrc_name, rsrc_type, rsrc_seq_num, active_flag, def_qty_per_hr) VALUES (:id, :pid, :cid, :nm, :nm, 'RT_Labor', :seq, 'Y', 1.0)"), 
+                                             {"id": new_node_id, "pid": parent_id, "cid": clndr_id, "nm": segment, "seq": seq_num})
+                                seq_num += 1
+                                
+                                path_to_id[lookup_path] = new_node_id
+                                existing_rsrc.setdefault(lookup_seg, []).append(new_node_id)
+                                existing_ids.add(new_node_id)
+                                parent_id = new_node_id
+
+                    if target_id:
+                        conn.execute(text("UPDATE rsrc SET rsrc_name=:nm, rsrc_type=:typ, clndr_id=:cid, parent_rsrc_id=:pid, def_qty_per_hr=:qty WHERE rsrc_id=:id"), 
+                                     {"nm": rsrc_name, "typ": rsrc_type, "cid": clndr_id, "pid": parent_id, "qty": def_qty_per_hr, "id": target_id})
+                        update_cnt += 1; rsrc_id_to_use = target_id
+                        existing_rsrc[lookup_short_name].pop(0) 
+                    else:
+                        rsrc_id_to_use = generate_unique_rsrc_id(existing_ids)
+                        conn.execute(text("INSERT INTO rsrc (rsrc_id, parent_rsrc_id, clndr_id, rsrc_short_name, rsrc_name, rsrc_type, rsrc_seq_num, active_flag, def_qty_per_hr) VALUES (:id, :pid, :cid, :snm, :nm, :typ, :seq, 'Y', :qty)"), 
+                                     {"id": rsrc_id_to_use, "pid": parent_id, "cid": clndr_id, "snm": short_name_raw, "nm": rsrc_name, "typ": rsrc_type, "seq": seq_num, "qty": def_qty_per_hr})
+                        seq_num += 1; success_cnt += 1
+                        existing_ids.add(rsrc_id_to_use)
+
+                    full_path_for_current = f"{raw_path}{PATH_DELIM}{short_name_raw}" if raw_path else short_name_raw
+                    path_to_id[full_path_for_current.strip().upper()] = rsrc_id_to_use
+
+                    cost_raw = str(row.get("cost_per_qty", "")).strip()
+                    if cost_raw:
+                        cost_val = float(cost_raw)
+                        date_raw = str(row.get("rate_start_date", "")).strip()
+                        start_dt = pd.to_datetime(date_raw).date() if date_raw else date(2025, 1, 1)
+                        try:
+                            rate_exists = conn.execute(text("SELECT rsrc_rate_id FROM RSRCRATE WHERE rsrc_id=:id AND start_date=:dt"), {"id": rsrc_id_to_use, "dt": start_dt}).scalar()
+                            if rate_exists: conn.execute(text("UPDATE RSRCRATE SET cost_per_qty=:cst WHERE rsrc_rate_id=:rid"), {"cst": cost_val, "rid": rate_exists})
+                            else:
+                                conn.execute(text("INSERT INTO RSRCRATE (rsrc_rate_id, rsrc_id, start_date, cost_per_qty) VALUES (:rid, :id, :dt, :cst)"), {"rid": rate_id_counter, "id": rsrc_id_to_use, "dt": start_dt, "cst": cost_val})
+                                rate_id_counter += 1
+                        except Exception: pass
+
+            parent_window.after(0, lambda: [overlay.destroy(), messagebox.showinfo("Success", "Database synchronization completed successfully.")])
+        except Exception as e:
+            err_str = traceback.format_exc()
+            parent_window.after(0, lambda: [overlay.destroy(), messagebox.showerror("Error (Rollback)", f"Operation cancelled:\n\n{err_str}")])
+
+    threading.Thread(target=run_sync, daemon=True).start()
+
+def import_data(parent_window):
+    file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
+    if not file_path: return
+    try: df = pd.read_excel(file_path, sheet_name=SHEET_MASTER, dtype=str).fillna("")
+    except Exception as e: messagebox.showerror("Error", f"Failed to read Excel file:\n{e}"); return
+    if df.empty: return
+    import_data_logic(file_path, df, parent_window)
+
+# ==========================================
+# 4. Ultra-Clean GUI & Precision Diagonal Gradient Engine
+# ==========================================
+def hex_to_rgb(h_color):
+    h = h_color.lstrip('#')
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+breathing_buttons = []
+
+def create_diagonal_gradient_button(canvas, x, y, w, h, radius, c_top, c_bot, h_top, h_bot, text, command, f_size=11):
+    btn_tag = f"btn_{x}_{y}_{random.randint(1,1000)}"
+    c1, c2 = hex_to_rgb(c_top), hex_to_rgb(c_bot)
+    hc1, hc2 = hex_to_rgb(h_top), hex_to_rgb(h_bot)
+    
+    line_data_normal = []
+    
+    for c in range(0, w + h, 1):
+        factor = (math.sin(math.pi * (c / (w + h)) - math.pi / 2) + 1) / 2
+        
+        base_r = int(c1[0] + (c2[0] - c1[0]) * factor)
+        base_g = int(c1[1] + (c2[1] - c1[1]) * factor)
+        base_b = int(c1[2] + (c2[2] - c1[2]) * factor)
+        
+        color = "#%02x%02x%02x" % (base_r, base_g, base_b)
+        h_color = "#%02x%02x%02x" % (int(hc1[0] + (hc2[0] - hc1[0]) * factor), int(hc1[1] + (hc2[1] - hc1[1]) * factor), int(hc1[2] + (hc2[2] - hc1[2]) * factor))
+        
+        x1, y1 = min(c, w), c - min(c, w)
+        y2, x2 = min(c, h), c - min(c, h)
+        
+        l_norm = canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=color, width=3, tags=(btn_tag, f"{btn_tag}_normal"))
+        canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=h_color, width=3, state="hidden", tags=(btn_tag, f"{btn_tag}_hover"))
+        line_data_normal.append((l_norm, base_r, base_g, base_b, c))
+
+    breathing_buttons.append({
+        "canvas": canvas,
+        "lines": line_data_normal,
+        "phase": random.random() * math.pi
+    })
+
+    canvas.create_rectangle(x-6, y-6, x, y+h+6, fill=C_BG, outline=C_BG)
+    canvas.create_rectangle(x+w, y-6, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
+    canvas.create_rectangle(x-6, y-6, x+w+6, y, fill=C_BG, outline=C_BG)
+    canvas.create_rectangle(x-6, y+h, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
+
+    for pts, ang, dx, dy in [
+        ([x, y+radius, x, y, x+radius, y], range(90, 181, 1), x+radius, y+radius),
+        ([x+w-radius, y, x+w, y, x+w, y+radius], range(0, 91, 1), x+w-radius, y+radius),
+        ([x+w, y+h-radius, x+w, y+h, x+w-radius, y+h], range(270, 361, 1), x+w-radius, y+h-radius),
+        ([x+radius, y+h, x, y+h, x, y+h-radius], range(180, 271, 1), x+radius, y+h-radius)
+    ]:
+        for a in ang: pts.extend([dx + radius*math.cos(math.radians(a)), dy - radius*math.sin(math.radians(a))])
+        canvas.create_polygon(pts, fill=C_BG, outline=C_BG, smooth=True)
+
+    text_id = canvas.create_text(x + w/2, y + h/2, text=text, fill="#FFFFFF", font=(C_FONT, f_size, "bold"), tags=btn_tag)
+
+    def on_enter(e): canvas.itemconfig(f"{btn_tag}_normal", state="hidden"); canvas.itemconfig(f"{btn_tag}_hover", state="normal"); canvas.config(cursor="hand2")
+    def on_leave(e): canvas.itemconfig(f"{btn_tag}_normal", state="normal"); canvas.itemconfig(f"{btn_tag}_hover", state="hidden"); canvas.config(cursor="")
+    def on_press(e): canvas.move(text_id, 0, 1)
+    def on_release(e): canvas.move(text_id, 0, -1); command()
+
+    for ev, handler in [("<Enter>", on_enter), ("<Leave>", on_leave), ("<ButtonPress-1>", on_press), ("<ButtonRelease-1>", on_release)]:
+        canvas.tag_bind(btn_tag, ev, handler)
+
+
+def create_diagonal_gradient_pill(canvas, x, y, w, h, radius, c_top, c_bot, h_top, h_bot, text, text_color, command, f_size=9, f_weight="normal"):
+    btn_tag = f"btn_pill_{x}_{y}_{random.randint(1,1000)}"
+    c1, c2 = hex_to_rgb(c_top), hex_to_rgb(c_bot)
+    hc1, hc2 = hex_to_rgb(h_top), hex_to_rgb(h_bot)
+
+    line_data_normal = []
+
+    for c in range(0, w + h, 1):
+        factor = (math.sin(math.pi * (c / (w + h)) - math.pi / 2) + 1) / 2
+        
+        base_r = int(c1[0] + (c2[0] - c1[0]) * factor)
+        base_g = int(c1[1] + (c2[1] - c1[1]) * factor)
+        base_b = int(c1[2] + (c2[2] - c1[2]) * factor)
+        
+        color = "#%02x%02x%02x" % (base_r, base_g, base_b)
+        h_color = "#%02x%02x%02x" % (int(hc1[0] + (hc2[0] - hc1[0]) * factor), int(hc1[1] + (hc2[1] - hc1[1]) * factor), int(hc1[2] + (hc2[2] - hc1[2]) * factor))
+        
+        x1, y1 = min(c, w), c - min(c, w)
+        y2, x2 = min(c, h), c - min(c, h)
+        l_norm = canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=color, width=3, tags=(btn_tag, f"{btn_tag}_normal"))
+        canvas.create_line(x+x1, y+y1, x+x2, y+y2, fill=h_color, width=3, state="hidden", tags=(btn_tag, f"{btn_tag}_hover"))
+        line_data_normal.append((l_norm, base_r, base_g, base_b, c))
+
+    breathing_buttons.append({
+        "canvas": canvas,
+        "lines": line_data_normal,
+        "phase": random.random() * math.pi
+    })
+
+    canvas.create_rectangle(x-6, y-6, x, y+h+6, fill=C_BG, outline=C_BG)
+    canvas.create_rectangle(x+w, y-6, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
+    canvas.create_rectangle(x-6, y-6, x+w+6, y, fill=C_BG, outline=C_BG)
+    canvas.create_rectangle(x-6, y+h, x+w+6, y+h+6, fill=C_BG, outline=C_BG)
+
+    for pts, ang, dx, dy in [
+        ([x, y+radius, x, y, x+radius, y], range(90, 181, 1), x+radius, y+radius),
+        ([x+w-radius, y, x+w, y, x+w, y+radius], range(0, 91, 1), x+w-radius, y+radius),
+        ([x+w, y+h-radius, x+w, y+h, x+w-radius, y+h], range(270, 361, 1), x+w-radius, y+h-radius),
+        ([x+radius, y+h, x, y+h, x, y+h-radius], range(180, 271, 1), x+radius, y+h-radius)
+    ]:
+        for a in ang: pts.extend([dx + radius*math.cos(math.radians(a)), dy - radius*math.sin(math.radians(a))])
+        canvas.create_polygon(pts, fill=C_BG, outline=C_BG, smooth=True)
+
+    text_id = canvas.create_text(x + w/2, y + h/2, text=text, fill=text_color, font=(C_FONT, f_size, f_weight), tags=btn_tag)
+
+    def on_enter(e): canvas.itemconfig(f"{btn_tag}_normal", state="hidden"); canvas.itemconfig(f"{btn_tag}_hover", state="normal"); canvas.config(cursor="hand2")
+    def on_leave(e): canvas.itemconfig(f"{btn_tag}_normal", state="normal"); canvas.itemconfig(f"{btn_tag}_hover", state="hidden"); canvas.config(cursor="")
+    def on_press(e): canvas.move(text_id, 0, 1)
+    def on_release(e): canvas.move(text_id, 0, -1); command()
+
+    for ev, handler in [("<Enter>", on_enter), ("<Leave>", on_leave), ("<ButtonPress-1>", on_press), ("<ButtonRelease-1>", on_release)]:
+        canvas.tag_bind(btn_tag, ev, handler)
+
+
+def create_modern_round_field(parent_frame, label_text, is_pwd=False, with_browse=None, tooltip=None):
+    f_container = tk.Frame(parent_frame, bg=C_BG)
+    f_container.pack(fill="x", pady=4)
+    
+    lbl_frame = tk.Frame(f_container, bg=C_BG)
+    lbl_frame.pack(fill="x", pady=(0, 2))
+    
+    tk.Label(lbl_frame, text="▪", fg=C_ACCENT, font=(C_FONT, 7), bg=C_BG).pack(side="left", padx=(0, 3))
+    tk.Label(lbl_frame, text=label_text, foreground=C_SEC_FG, font=(C_FONT, 9, "bold"), bg=C_BG).pack(side="left", padx=0, pady=0)
+    
+    f_border = tk.Frame(f_container, bg=C_SEC_BG, highlightbackground=C_BORDER, highlightthickness=1, height=32)
+    f_border.pack_propagate(False)
+    f_border.pack(fill="x", padx=(14, 0))
+    
+    ent = tk.Entry(f_border, font=(C_FONT, 10), bd=0, highlightthickness=0, bg=C_SEC_BG, fg=C_FG, insertbackground=C_FG)
+    ent.pack(side="left", fill="both", expand=True, padx=(10, 8))
+    
+    if tooltip: ToolTip(ent, tooltip)
+
+    if with_browse:
+        btn_browse = tk.Label(f_border, text="Browse...", font=(C_FONT, 9, "bold"), fg=C_ACCENT, bg=C_SEC_BG, cursor="hand2")
+        btn_browse.pack(side="right", padx=10)
+        btn_browse.bind("<Button-1>", lambda e: with_browse(ent))
+
+    if is_pwd:
+        ent.config(show="*")
+        lbl_toggle = tk.Label(f_border, text="Show", font=(C_FONT, 8, "bold"), fg=C_ACCENT, bg=C_SEC_BG, cursor="hand2")
+        lbl_toggle.pack(side="right", padx=10)
+        
+        def toggle_pwd_view(e):
+            if ent.cget("show") == "*":
+                ent.config(show=""); lbl_toggle.config(text="Hide")
+            else:
+                ent.config(show="*"); lbl_toggle.config(text="Show")
+        lbl_toggle.bind("<Button-1>", toggle_pwd_view)
+        
+    return f_container, ent
+
+# ----------------------------------------------------
+# DB Profiles Setup Window Pane
+# ----------------------------------------------------
+def open_db_settings(root):
+    set_win = tk.Toplevel(root)
+    set_win.title("PRM - Manage DB Profiles")
+    set_win.geometry("400x570")
+    set_win.configure(bg=C_BG)
+    set_win.grab_set()
+
+    try: set_win.iconbitmap(ICON_FILE) 
+    except: pass
+
+    style = ttk.Style(set_win)
+    if "clam" in style.theme_names():
+        style.theme_use("clam")
+        
+    style.configure("Flat.TCombobox",
+                    fieldbackground=C_SEC_BG,
+                    background=C_BG,
+                    foreground=C_FG,
+                    bordercolor=C_SEC_BG, 
+                    lightcolor=C_SEC_BG,
+                    darkcolor=C_SEC_BG,
+                    arrowcolor=C_FG,
+                    padding=(2, 2))
+    
+    style.map("Flat.TCombobox",
+              fieldbackground=[("readonly", C_SEC_BG)],
+              selectbackground=[("readonly", C_SEC_BG)], 
+              selectforeground=[("readonly", C_FG)])
+
+    sub_title_canvas = tk.Canvas(set_win, width=400, height=50, bg=C_BG, highlightthickness=0)
+    sub_title_canvas.pack(pady=(20, 5))
+    
+    animate_text_shimmer_wave(set_win, sub_title_canvas, "Manage DB Profiles", 20, 200, 25)
+
+    frame_inputs = tk.Frame(set_win, bg=C_BG)
+    frame_inputs.pack(fill="x", padx=40, pady=5)
+
+    lbl_frame1 = tk.Frame(frame_inputs, bg=C_BG)
+    lbl_frame1.pack(fill="x", pady=(0, 2), padx=0)
+    tk.Label(lbl_frame1, text="▪", fg=C_ACCENT, font=(C_FONT, 7), bg=C_BG).pack(side="left", padx=(0, 3))
+    tk.Label(lbl_frame1, text="Connection Type", foreground=C_SEC_FG, font=(C_FONT, 9, "bold"), bg=C_BG).pack(side="left", padx=0, pady=0)
+    
+    f_cb1_border = tk.Frame(frame_inputs, bg=C_SEC_BG, highlightbackground=C_BORDER, highlightthickness=1, height=32)
+    f_cb1_border.pack_propagate(False)
+    f_cb1_border.pack(fill="x", pady=(0, 10), padx=(14, 0))
+    cb_type = ttk.Combobox(f_cb1_border, values=["SQL Server (Remote)", "Local File (SQLite)"], font=(C_FONT, 10), state="readonly", style="Flat.TCombobox")
+    cb_type.pack(fill="both", expand=True, padx=(4, 8), pady=3)
+    
+    lbl_frame2 = tk.Frame(frame_inputs, bg=C_BG)
+    lbl_frame2.pack(fill="x", pady=(0, 2), padx=0)
+    tk.Label(lbl_frame2, text="▪", fg=C_ACCENT, font=(C_FONT, 7), bg=C_BG).pack(side="left", padx=(0, 3))
+    tk.Label(lbl_frame2, text="Select or Type Profile Name", bg=C_BG, fg=C_SEC_FG, font=(C_FONT, 9, "bold")).pack(side="left", padx=0, pady=0)
+    
+    frame_prof_ctrl = tk.Frame(frame_inputs, bg=C_BG)
+    frame_prof_ctrl.pack(fill="x", pady=(0, 10), padx=(14, 0))
+
+    cvs_ctrl = tk.Canvas(frame_prof_ctrl, width=130, height=32, bg=C_BG, highlightthickness=0)
+    cvs_ctrl.pack(side="right", padx=(5, 0))
+
+    f_cb2_border = tk.Frame(frame_prof_ctrl, bg=C_SEC_BG, highlightbackground=C_BORDER, highlightthickness=1, height=32)
+    f_cb2_border.pack_propagate(False)
+    f_cb2_border.pack(side="left", fill="x", expand=True)
+    cb_profile = ttk.Combobox(f_cb2_border, font=(C_FONT, 10), state="normal", style="Flat.TCombobox")
+    cb_profile.pack(fill="both", expand=True, padx=(4, 8), pady=3)
+
+    fields = {}
+    ui_state = {"loaded_profile": None} 
+
+    def browse_sqlite_file(target_entry):
+        f_path = filedialog.askopenfilename(title="Select Local Database File", filetypes=[("SQLite Files", "*.db;*.sqlite;*.sqlite3"), ("All Files", "*.*")], parent=set_win)
+        if f_path:
+            target_entry.delete(0, tk.END)
+            target_entry.insert(0, f_path)
+
+    def refresh_ui_fields():
+        db_type = cb_type.get()
+        for k in ["HOST", "NAME", "USER", "PASS"]:
+            if k in fields: fields[k]["frame"].pack_forget()
+            
+        if db_type == "Local File (SQLite)":
+            fields["HOST"]["frame"].pack(fill="x", pady=4)
+            lbl_container = fields["HOST"]["frame"].winfo_children()[0]
+            lbl_container.winfo_children()[1].config(text="Database File Path")
+            fields["HOST"]["frame"].winfo_children()[1].winfo_children()[1].pack(side="right", padx=10)
+        else:
+            for k in ["HOST", "NAME", "USER", "PASS"]:
+                fields[k]["frame"].pack(fill="x", pady=4)
+            lbl_container = fields["HOST"]["frame"].winfo_children()[0]
+            lbl_container.winfo_children()[1].config(text="Database Host")
+            fields["HOST"]["frame"].winfo_children()[1].winfo_children()[1].pack_forget()
+
+    f_host, ent_host = create_modern_round_field(frame_inputs, "Database Host", with_browse=browse_sqlite_file, tooltip="e.g., IP_Address\\SQLEXPRESS or sqlite.db path")
+    f_name, ent_name = create_modern_round_field(frame_inputs, "Database Name")
+    f_user, ent_user = create_modern_round_field(frame_inputs, "Username")
+    f_pwd, ent_pwd = create_modern_round_field(frame_inputs, "Password", is_pwd=True)
+
+    fields["HOST"] = {"frame": f_host, "entry": ent_host}
+    fields["NAME"] = {"frame": f_name, "entry": ent_name}
+    fields["USER"] = {"frame": f_user, "entry": ent_user}
+    fields["PASS"] = {"frame": f_pwd, "entry": ent_pwd}
+
+    def clear_inputs(clear_profile_name=True):
+        if clear_profile_name:
+            cb_profile.set("")
+        for k in fields:
+            fields[k]["entry"].delete(0, tk.END)
+
+    def load_selected_profile(event=None):
+        prof_name = cb_profile.get()
+        if not prof_name: return
+        ui_state["loaded_profile"] = prof_name 
+        data = app_data["profiles"].get(prof_name, {})
+        clear_inputs(clear_profile_name=False)
+        for k, key in [("HOST", "HOST"), ("NAME", "NAME"), ("USER", "USER"), ("PASS", "PASS")]:
+            fields[k]["entry"].insert(0, data.get(key, ""))
+        refresh_ui_fields()
+
+    def update_profile_list(*args):
+        current_type = cb_type.get()
+        valid_profiles = [p for p, data in app_data["profiles"].items() if data.get("TYPE", "SQL Server (Remote)") == current_type]
+        cb_profile['values'] = valid_profiles
+        
+        if valid_profiles:
+            if app_data["current_profile"] in valid_profiles:
+                cb_profile.set(app_data["current_profile"])
+            else:
+                cb_profile.set(valid_profiles[0])
+            load_selected_profile()
+        else:
+            clear_inputs()
+            ui_state["loaded_profile"] = None
+            refresh_ui_fields()
+
+    cb_type.bind("<<ComboboxSelected>>", update_profile_list)
+    cb_profile.bind("<<ComboboxSelected>>", load_selected_profile)
+
+    def on_add():
+        clear_inputs(clear_profile_name=True)
+        ui_state["loaded_profile"] = None 
+        refresh_ui_fields()
+
+    def on_delete():
+        prof = cb_profile.get().strip()
+        if not prof: return
+        if prof == "Default": return messagebox.showwarning("Warning", "The Default profile cannot be deleted.", parent=set_win)
+        if messagebox.askyesno("Delete", f"Are you sure you want to delete profile '{prof}'?", parent=set_win):
+            del app_data["profiles"][prof]
+            if app_data["current_profile"] == prof: app_data["current_profile"] = "Default"
+            save_config(); update_profile_list()
+    
+    # [수정] VS Code 테마 알약 버튼 적용 (라이트 모드 5색, 다크 모드 파스텔 VS Code 5색)
+    if THEME == "light":
+        add_c = ("#D0E8FF", "#A1D1FF", "#E6F2FF", "#B8DCFF", "#1D1D1F")
+        del_c = ("#FFC6C4", "#FF9E9B", "#FFE0DF", "#FFB5B2", "#1D1D1F")
+    else:
+        # Function Yellow (#DCDCAA)
+        add_c = ("#4D4D4D", "#333333", "#DCDCAA", "#B5B58C", "#1E1E1E")
+        # Control Purple (#C586C0)
+        del_c = ("#4D4D4D", "#333333", "#C586C0", "#9E6B99", "#1E1E1E")
+        
+    create_diagonal_gradient_pill(cvs_ctrl, 5, 2, 60, 26, 3, add_c[0], add_c[1], add_c[2], add_c[3], "Add New", add_c[4], on_add, f_weight="normal")
+    create_diagonal_gradient_pill(cvs_ctrl, 70, 2, 55, 26, 3, del_c[0], del_c[1], del_c[2], del_c[3], "Delete", del_c[4], on_delete, f_size=8, f_weight="normal")
+
+    initial_type = app_data["profiles"].get(app_data["current_profile"], {}).get("TYPE", "SQL Server (Remote)")
+    cb_type.set(initial_type)
+    update_profile_list()
+
+    def test_connection():
+        if not cb_profile.get(): return messagebox.showwarning("Warning", "Please select or type a profile first.", parent=set_win)
+        
+        db_host_val = str(ent_host.get()).replace('\\\\', '\\')
+        
+        if cb_type.get() == "Local File (SQLite)":
+            try:
+                engine = create_engine(f"sqlite:///{db_host_val}")
+                with engine.connect() as conn: conn.execute(text("SELECT 1"))
+                messagebox.showinfo("Success", "Local SQLite connection verified successfully.", parent=set_win)
+                return
+            except Exception as e:
+                messagebox.showerror("Failed", f"SQLite target verification failed:\n{e}", parent=set_win); return
+
+        conn_str = f"mssql+pymssql://{ent_user.get()}:{ent_pwd.get()}@{db_host_val}/{ent_name.get()}"
+        try:
+            engine = create_engine(conn_str, connect_args={'login_timeout': 3})
+            with engine.connect() as conn: conn.execute(text("SELECT 1"))
+            messagebox.showinfo("Success", "Database connection successful.", parent=set_win)
+        except Exception:
+            messagebox.showerror("Failed", "Connection failed. Please verify your credentials.", parent=set_win)
+
+    def on_save():
+        prof_name = cb_profile.get().strip()
+        if not prof_name: return messagebox.showwarning("Warning", "Profile name cannot be empty.", parent=set_win)
+        
+        loaded_name = ui_state["loaded_profile"]
+        
+        if loaded_name and loaded_name != prof_name:
+            if prof_name in app_data["profiles"]:
+                return messagebox.showwarning("Warning", f"Profile '{prof_name}' already exists.", parent=set_win)
+            if loaded_name == "Default":
+                return messagebox.showwarning("Warning", "The Default profile cannot be renamed.", parent=set_win)
+            app_data["profiles"][prof_name] = app_data["profiles"].pop(loaded_name)
+        
+        elif not loaded_name and prof_name in app_data["profiles"]:
+            if not messagebox.askyesno("Overwrite", f"Profile '{prof_name}' already exists. Do you want to overwrite it?", parent=set_win):
+                return
+
+        app_data["current_profile"] = prof_name
+        app_data["profiles"][prof_name] = {
+            "TYPE": cb_type.get(),
+            "HOST": ent_host.get(), "NAME": ent_name.get(), "USER": ent_user.get(), "PASS": ent_pwd.get()
+        }
+        save_config()
+        messagebox.showinfo("Saved", f"Profile '{prof_name}' saved and applied successfully.", parent=set_win)
+        set_win.destroy()
+
+    frame_btns = tk.Frame(set_win, bg=C_BG)
+    frame_btns.pack(pady=5)
+    lbl_test = tk.Label(frame_btns, text="🔗 Test Connection", font=(C_FONT, 9, "bold"), fg=C_ACCENT, bg=C_BG, cursor="hand2")
+    lbl_test.pack(pady=4)
+    lbl_test.bind("<Enter>", lambda e: lbl_test.config(fg=C_ACCENT_HOVER))
+    lbl_test.bind("<Leave>", lambda e: lbl_test.config(fg=C_ACCENT))
+    lbl_test.bind("<Button-1>", lambda e: test_connection())
+
+    canvas_save = tk.Canvas(frame_btns, width=340, height=65, bg=C_BG, highlightthickness=0)
+    canvas_save.pack()
+    
+    if THEME == "light":
+        c_save = ("#5E5CE6", "#4B49B7", "#7D7AFF", "#5A58D6")
+    else:
+        # String Orange (#CE9178)
+        c_save = ("#855C4A", "#4A3329", "#CE9178", "#855C4A")
+        
+    create_diagonal_gradient_button(canvas_save, 50, 10, 240, 45, 10, c_save[0], c_save[1], c_save[2], c_save[3], "Save & Apply Profile", on_save)
+
+# ----------------------------------------------------
+# PRM Premium Animation Engines
+# ----------------------------------------------------
+anim_structures = {}
+
+def animate_text_shimmer_wave(window, canvas, full_text, font_size, center_x, center_y):
+    f_obj = tkfont.Font(family=C_FONT, size=font_size, weight="bold")
+    char_widths = [f_obj.measure(c) for c in full_text]
+    total_w = sum(char_widths)
+    start_x = center_x - (total_w / 2)
+    
+    text_ids = []
+    current_x = start_x
+    for char in full_text:
+        t_id = canvas.create_text(current_x, center_y, text=char, font=f_obj, anchor="w")
+        text_ids.append(t_id)
+        current_x += f_obj.measure(char)
+        
+    obj_id = f"shimmer_{id(canvas)}"
+    anim_structures[obj_id] = {"phase": 0.0, "ids": text_ids}
+    
+    def run_shimmer_loop():
+        if obj_id not in anim_structures: return
+        anim_structures[obj_id]["phase"] += 0.04
+        phase = anim_structures[obj_id]["phase"]
+        
+        for idx, t_id in enumerate(anim_structures[obj_id]["ids"]):
+            char_offset = idx * 0.15
+            brightness = 0.35 + 0.65 * (math.sin(phase - char_offset) + 1) / 2
+            
+            if THEME == "light":
+                r = int(29 + (180 - 29) * (1 - brightness))
+                g = int(29 + (180 - 29) * (1 - brightness))
+                b = int(31 + (185 - 31) * (1 - brightness))
+            else:
+                # [수정] VS Code Control Purple(#C586C0) -> Keyword Blue(#569CD6) Shimmer
+                r = int(86 + (197 - 86) * brightness)
+                g = int(156 + (134 - 156) * brightness)
+                b = int(214 + (192 - 214) * brightness)
+                
+            try: canvas.itemconfig(t_id, fill="#%02x%02x%02x" % (r, g, b))
+            except tk.TclError: return
+            
+        try: window.after(40, run_shimmer_loop)
+        except: pass
+        
+    run_shimmer_loop()
+
+def run_button_breathing_loop(window):
+    if not breathing_buttons: return
+    for b in breathing_buttons:
+        b["phase"] += 0.06 
+        for line_id, base_r, base_g, base_b, c in b["lines"]:
+            pulse = math.sin(b["phase"] - (c * 0.02))
+            shift = int(12 * pulse)
+            
+            nr = max(0, min(255, base_r + shift))
+            ng = max(0, min(255, base_g + shift))
+            nb = max(0, min(255, base_b + shift))
+            try:
+                b["canvas"].itemconfig(line_id, fill="#%02x%02x%02x" % (nr, ng, nb))
+            except tk.TclError: continue
+            
+    try: window.after(50, lambda: run_button_breathing_loop(window))
+    except: pass
+
+# [수정] 강제종료 방식 완전 개편: DETACHED_PROCESS(독립 새창) 띄우고 자연 종료
+def toggle_theme(root):
+    new_theme = "dark" if app_data.get("theme", "light") == "light" else "light"
+    app_data["theme"] = new_theme
+    try:
+        app_data["win_x"] = root.winfo_x()
+        app_data["win_y"] = root.winfo_y()
+    except Exception:
+        pass
+    save_config()
+    
+    if getattr(sys, 'frozen', False):
+        import subprocess
+        # 0x00000008 = DETACHED_PROCESS 플래그로 윈도우상에서 완전히 분리된 새 프로세스 생성
+        subprocess.Popen([sys.executable] + sys.argv[1:], creationflags=0x00000008, close_fds=True)
+    else:
+        import subprocess
+        subprocess.Popen([sys.executable] + sys.argv)
+        
+    # 기존 창과 메인루프를 안전하게 닫아 PyInstaller가 임시폴더를 무사히 지우도록 함
+    root.quit()
+    root.destroy()
+    sys.exit(0)
+
+def main():
+    root = tk.Tk()
+    root.title("PRM - Primavera P6 Resource Manager")
+
+    window_width, window_height = 460, 340
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    
+    default_x = int((sw/2) - (window_width/2))
+    default_y = int((sh/2) - (window_height/2))
+    
+    x_pos = app_data.get("win_x")
+    y_pos = app_data.get("win_y")
+    
+    if x_pos is None or y_pos is None:
+        x_pos, y_pos = default_x, default_y
+        
+    root.geometry(f"{window_width}x{window_height}+{x_pos}+{y_pos}")
+    
+    root.configure(bg=C_BG)
+    
+    try: root.iconbitmap(ICON_FILE) 
+    except: pass
+    
+    title_canvas = tk.Canvas(root, width=460, height=65, bg=C_BG, highlightthickness=0)
+    title_canvas.pack(pady=(25, 2))
+    
+    animate_text_shimmer_wave(root, title_canvas, "Resource Manager", 24, 230, 30)
+    
+    tk.Label(root, text="Excel ↔ P6 Database Sync Tool", font=(C_FONT, 11), bg=C_BG, fg=C_SUBTITLE_FG).pack(pady=(0, 20))
+
+    canvas_main = tk.Canvas(root, width=460, height=150, bg=C_BG, highlightthickness=0)
+    canvas_main.pack()
+
+    if THEME == "light":
+        c_export = ("#47A1FF", "#0071E3", "#66B2FF", "#1A82F0")
+        c_import = ("#3EE068", "#34C759", "#5CF282", "#41D868")
+    else:
+        # [수정] VS Code Theme 파스텔 하이라이팅 적용
+        # Export 메인: Keyword Blue (#569CD6)
+        c_export = ("#36658B", "#1E3B54", "#569CD6", "#36658B") 
+        # Import 메인: Type Mint (#4EC9B0)
+        c_import = ("#318272", "#1B4D43", "#4EC9B0", "#318272") 
+
+    create_diagonal_gradient_button(canvas_main, 120, 10, 220, 45, 10, c_export[0], c_export[1], c_export[2], c_export[3], "Export Master Template", export_template)
+    create_diagonal_gradient_button(canvas_main, 120, 75, 220, 45, 10, c_import[0], c_import[1], c_import[2], c_import[3], "Import & Sync to DB", lambda: import_data(root))
+
+    btn_settings = tk.Label(root, text="DB Settings", font=(C_FONT, 10, "bold"), bg=C_BG, fg=C_THEME_FG, cursor="hand2")
+    btn_settings.place(relx=0.04, rely=0.96, anchor="sw")
+    btn_settings.bind("<Enter>", lambda e: btn_settings.config(fg=C_ACCENT_HOVER)) 
+    btn_settings.bind("<Leave>", lambda e: btn_settings.config(fg=C_THEME_FG))
+    btn_settings.bind("<Button-1>", lambda e: open_db_settings(root))
+
+    theme_text = "Dark Mode" if THEME == "light" else "Light Mode"
+    btn_theme = tk.Label(root, text=theme_text, font=(C_FONT, 10, "bold"), bg=C_BG, fg=C_THEME_FG, cursor="hand2")
+    btn_theme.place(relx=0.96, rely=0.96, anchor="se")
+    btn_theme.bind("<Enter>", lambda e: btn_theme.config(fg=C_ACCENT_HOVER))
+    btn_theme.bind("<Leave>", lambda e: btn_theme.config(fg=C_THEME_FG))
+    btn_theme.bind("<Button-1>", lambda e: toggle_theme(root))
+
+    tk.Label(root, text="v0.9.15 Global Edition", font=(C_FONT, 8), bg=C_BG, fg="#A1A1A6").place(relx=0.5, rely=0.96, anchor="s")
+
+    run_button_breathing_loop(root)
+
+    root.mainloop()
+
+if __name__ == "__main__":
+    main()
