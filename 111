@@ -1,37 +1,18 @@
-    if THEME == "light":
-        # [수정] 라이트 모드도 5개의 색상(기본 상/하, 호버 상/하, 글자색)을 모두 부여하여 증발 버그 완벽 해결
-        add_c = ("#D0E8FF", "#A1D1FF", "#E6F2FF", "#B8DCFF", "#1D1D1F")
-        del_c = ("#FFC6C4", "#FF9E9B", "#FFE0DF", "#FFB5B2", "#1D1D1F")
-    else:
-        add_c = ("#757578", "#48484A", "#98989D", "#5C5C5E", "#FFFFFF")
-        del_c = ("#636366", "#3A3A3C", "#86868B", "#48484A", "#FFFFFF")
-        
-    create_diagonal_gradient_pill(cvs_ctrl, 5, 2, 60, 26, 3, add_c[0], add_c[1], add_c[2], add_c[3], "Add New", add_c[4], on_add, f_weight="normal")
-    create_diagonal_gradient_pill(cvs_ctrl, 70, 2, 55, 26, 3, del_c[0], del_c[1], del_c[2], del_c[3], "Delete", del_c[4], on_delete, f_size=8, f_weight="normal")
+# ==========================================
+# 0. Global Settings & Colors (Dark Mode Support)
+# ==========================================
+# ...(상단 생략)...
 
+C_FG = "#1D1D1F" if THEME == "light" else "#F5F5F5"
 
+# [수정 전]
+# C_SEC_FG = "#48484A" if THEME == "light" else "#A1A1A6"
 
+# ========================================================
+# [수정 후] 다크 모드 소제목 텍스트를 훨씬 밝은 '플래티넘 실버(#D1D1D6)'로 톤업하여 가독성 확보
+C_SEC_FG = "#48484A" if THEME == "light" else "#D1D1D6" 
+# ========================================================
 
+C_BORDER = "#D1D1D6" if THEME == "light" else "#48484A"
 
-
-
-    canvas_main = tk.Canvas(root, width=460, height=150, bg=C_BG, highlightthickness=0)
-    canvas_main.pack()
-
-    if THEME == "light":
-        c_export = ("#47A1FF", "#0071E3", "#66B2FF", "#1A82F0")
-        c_import = ("#3EE068", "#34C759", "#5CF282", "#41D868")
-    else:
-        # [수정] 두 버튼의 확실한 대비를 위해 Export 버튼을 한층 더 밝은 플래티넘 실버로 톤업
-        c_export = ("#8E8E93", "#636366", "#A1A1A6", "#757578") 
-        # [수정] Import 버튼은 차분한 스틸 그레이로 밸런스 조정
-        c_import = ("#5C5C5E", "#3A3A3C", "#757578", "#48484A") 
-
-    create_diagonal_gradient_button(canvas_main, 110, 10, 240, 45, 10, c_export[0], c_export[1], c_export[2], c_export[3], "Export Master Template", export_template)
-    create_diagonal_gradient_button(canvas_main, 110, 75, 240, 45, 10, c_import[0], c_import[1], c_import[2], c_import[3], "Import & Sync to DB", lambda: import_data(root))
-
-
-
-
-
-
+# ...(하단 생략)...
